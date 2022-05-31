@@ -1,6 +1,6 @@
 // https://blog.boot.dev/cryptography/how-sha-2-works-step-by-step-sha-256/
 
-const DEV = true;
+const DEV = false;
 
 const bitNums = [128, 64, 32, 16, 8, 4, 2, 1];
 const shiftNums = [1];
@@ -11,6 +11,8 @@ for (let i = 1; i <= 32; i++) {
 const pad8 = (str: number | string) => typeof str === 'number' ? pad8(str.toString(2)) : (str.length < 8) ? pad8(`0${str}`) : str;
 const pad32 = (str: number | string) => typeof str === 'number' ? pad32(str.toString(2)) : (str.length < 32) ? pad32(`0${str}`) : str;
 const pad64 = (str: number | string) => typeof str === 'number' ? pad64(str.toString(2)) : (str.length < 64) ? pad64(`0${str}`) : str;
+
+const utf8ToBytes = (inputString: string) => [...new TextEncoder().encode(inputString)];
 
 const rightShift32 = (input: number, amount: number) => {
   return Math.floor(input / shiftNums[amount]);
@@ -63,11 +65,11 @@ class BitVector {
 
   public length: number;
 
-  constructor(buffer: Buffer) {
+  constructor(bytes: number[]) {
     this.data = [];
-    if (buffer) {
-      for (let i = 0; i < buffer.length; i++) {
-        this.data[i] = buffer[i];
+    if (bytes) {
+      for (let i = 0; i < bytes.length; i++) {
+        this.data[i] = bytes[i];
       }
       this.length = this.data.length * 8;
     }
@@ -145,12 +147,12 @@ class WordVector {
 }
 
 
-class Sha256 {
+export class Sha256 {
   constructor() {
   }
 
-  public generate(inputString: string, options?: { seperatedBlocks?: boolean }) {
-    const inputVector = new BitVector(Buffer.from(inputString, 'utf-8'));
+  public generateFromBytes(inputBytes: number[], options?: { asWords?: boolean }): number[] {
+    const inputVector = new BitVector(inputBytes);
     const inputVectorModified = inputVector.clone();
     inputVectorModified.addBits(1);
     while (inputVectorModified.length <= 64 || (inputVectorModified.length + 64) % 512 !== 0) {
@@ -194,6 +196,22 @@ class Sha256 {
         hAll[i] = (hAll[i] + hChunk[i]) % shiftNums[32];
       }
     }
+    if (options?.asWords) {
+      return hAll;
+    } else {
+      const result: number[] = [];
+      hAll.forEach(word => {
+        const wordString = pad8(word.toString(16));
+        for (let i = 0; i < 4; i++) {
+          result.push(parseInt(wordString.substring(i * 2, i * 2 + 2), 16));
+        }
+      });
+      return result;
+    }
+  }
+
+  public generate(inputString: string, options?: { seperatedBlocks?: boolean }) {
+    const hAll = this.generateFromBytes(utf8ToBytes(inputString), {asWords: true});
     return hAll.map(p => pad8(p.toString(16))).join(options?.seperatedBlocks ? ' ' : '');
   }
 }
