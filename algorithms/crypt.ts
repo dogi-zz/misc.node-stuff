@@ -167,19 +167,18 @@ export class Base64 {
   constructor() {
   }
 
-  public encode(inputString: string, options?: { noPadding?: boolean, url?: boolean }) {
+  public encodeBytes(data: number[], options?: { noPadding?: boolean, url?: boolean }) {
+    const dataToEncode = [...data];
     const alphabet = options?.url ? Base64.alphabetUrl : Base64.alphabetBase;
-
-    const data: number[] = utf8ToBytes(inputString);
     let padding = 0;
-    while (data.length % 3) {
+    while (dataToEncode.length % 3) {
       padding++;
-      data.push(0);
+      dataToEncode.push(0);
     }
 
     const blocks: string[] = [];
-    for (let i = 0; i < data.length; i += 3) {
-      blocks.push(`${pad8(data[i].toString(2))}${pad8(data[i + 1].toString(2))}${pad8(data[i + 2].toString(2))}`);
+    for (let i = 0; i < dataToEncode.length; i += 3) {
+      blocks.push(`${pad8(dataToEncode[i].toString(2))}${pad8(dataToEncode[i + 1].toString(2))}${pad8(dataToEncode[i + 2].toString(2))}`);
     }
     const outputChars: string[] = [];
     blocks.forEach(block => {
@@ -195,6 +194,10 @@ export class Base64 {
       outputChars.splice(outputChars.length - padding);
     }
     return outputChars.join('');
+  }
+
+  public encode(inputString: string, options?: { noPadding?: boolean, url?: boolean }) {
+    return this.encodeBytes(utf8ToBytes(inputString), options);
   }
 
   public decode(base64Code: string) {
@@ -335,7 +338,10 @@ export class Hmac {
   constructor(private hashFunction: (input: number[]) => number[]) {
   }
 
-  public generate(inputString: string, secret: string) {
+  public generateBytes(inputString: string, secret: string) {
+    if (!secret){
+      throw new Error('no secret for Hmac');
+    }
     const inputBytes = utf8ToBytes(inputString);
     let secretBytes = utf8ToBytes(secret);
 
@@ -350,9 +356,10 @@ export class Hmac {
 
     const kIPad = xor512(secretVector.data, Hmac.iPad);
     const koPad = xor512(secretVector.data, Hmac.oPad);
-    const hMac = this.hashFunction([...koPad, ...this.hashFunction([...kIPad, ...inputBytes])]);
-
-    return hMac.map(num => byteHex(num)).join('');
+    return this.hashFunction([...koPad, ...this.hashFunction([...kIPad, ...inputBytes])]);
+  }
+  public generate(inputString: string, secret: string) {
+    return this.generateBytes(inputString, secret).map(num => byteHex(num)).join('');
   }
 }
 
@@ -370,6 +377,74 @@ export class HmacSha256 extends Hmac {
 
 }
 
+
+
+
+export class JWT {
+  public createToken(payload: any, secret: string, expiration?: Date | string) {
+    const base64 = new Base64();
+    const hmacSha256 = new HmacSha256();
+
+    let expirationDate: Date;
+    if (typeof expiration === 'string') {
+      expirationDate = new Date();
+      const checkUnit = (unit: string, callback: (amount: number) => void) => {
+        if (expiration.endsWith(unit)) {
+          callback(parseInt(expiration.substring(0, expiration.length - unit.length), 10));
+          return true;
+        }
+        return false;
+      };
+      if (!checkUnit('ms', (amount) => expirationDate.setMilliseconds(expirationDate.getMilliseconds() + amount))
+          && !checkUnit('s', (amount) => expirationDate.setSeconds(expirationDate.getSeconds() + amount))
+          && !checkUnit('m', (amount) => expirationDate.setMinutes(expirationDate.getMinutes() + amount))
+          && !checkUnit('h', (amount) => expirationDate.setHours(expirationDate.getHours() + amount))
+          && !checkUnit('d', (amount) => expirationDate.setDate(expirationDate.getDate() + amount))) {
+        throw new Error(`expiration time not parseable: ${expiration}`);
+      }
+    } else {
+      expirationDate = expiration;
+    }
+    const iat = payload.iat || Math.floor(new Date().getTime() / 1000);
+    const exp = payload.exp || Math.ceil(expirationDate.getTime() / 1000);
+    if (!payload.exp || !exp) {
+      throw new Error(`expiration time missing`);
+    }
+    const header = {
+      'alg': 'HS256',
+      'typ': 'JWT',
+    };
+    const encodedHeader = base64.encode(JSON.stringify(header), {url: true});
+    const encodedPayload = base64.encode(JSON.stringify({...payload, iat, exp}), {url: true});
+    const encodedString = `${encodedHeader}.${encodedPayload}`;
+    const hash = hmacSha256.generateBytes(encodedString, secret);
+    const secretSign = base64.encodeBytes(hash, {url: true});
+    return `${encodedHeader}.${encodedPayload}.${secretSign}`;
+  }
+
+  public decodeToken(token: string, secret?: string): { header: any, payload: any, error: {expired: boolean, invalid: boolean} } {
+    const base64 = new Base64();
+    const hmacSha256 = new HmacSha256();
+
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      throw new Error('invalid Token');
+    }
+    const header = JSON.parse(base64.decode(parts[0]));
+    const payload = JSON.parse(base64.decode(parts[1]));
+    const now = new Date().getTime() / 1000;
+    const expired = !payload.iat || !payload.exp || payload.iat > now || payload.exp  < now;
+
+    const encodedString = `${parts[0]}.${parts[1]}`;
+    const hash = secret ? hmacSha256.generateBytes(encodedString, secret) : null;
+    const secretSign = hash ? base64.encodeBytes(hash, {url: true}) : null;
+    const invalid = secretSign && secretSign !== parts[2];
+
+    return {
+      header, payload, error:( expired || invalid ) ? {expired, invalid} : null,
+    };
+  }
+}
 
 
 
