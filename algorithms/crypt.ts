@@ -4,7 +4,7 @@
 
 const DEV = false;
 
-const utf8ToBytes = (inputString: string) => [...new TextEncoder().encode(inputString)];
+const utf8ToBytes = (inputString: string) => Array.from(new TextEncoder().encode(inputString));
 const bytesToUtf8 = (inputBytes: number[]) => new TextDecoder().decode(new Uint8Array(inputBytes));
 
 
