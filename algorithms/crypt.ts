@@ -15,10 +15,12 @@ const pad64 = (str: number | string) => typeof str === 'number' ? pad64(str.toSt
 
 const byteHex = (str: number | string) => typeof str === 'number' ? byteHex(str.toString(16)) : (str.length < 2) ? `0${str}` : str;
 
+const bit16 = 256 * 256;
 const shiftNums = [1];
 for (let i = 1; i <= 32; i++) {
   shiftNums.push(shiftNums[shiftNums.length - 1] * 2);
 }
+
 const rightShift32 = (input: number, amount: number) => {
   return Math.floor(input / shiftNums[amount]);
 };
@@ -29,15 +31,18 @@ const rightRotate32 = (input: number, amount: number) => {
   return rightShift32(input, amount) + leftShift32(input % shiftNums[amount], 32 - amount);
 };
 const xor32 = (a: number, b: number) => {
-  const [aString, bString] = [pad32(a).split(''), pad32(b).split('')];
-  return parseInt(aString.map((a, i) => a !== bString[i] ? '1' : '0').join(''), 2);
+  const [a_3_2, a_1_0] = [Math.floor(a / bit16) % bit16, a % bit16];
+  const [b_3_2, b_1_0] = [Math.floor(b / bit16) % bit16, b % bit16];
+  return (a_3_2 ^ b_3_2) * bit16 + (a_1_0 ^ b_1_0)
 };
 const and32 = (a: number, b: number) => {
-  const [aString, bString] = [pad32(a).split(''), pad32(b).split('')];
-  return parseInt(aString.map((a, i) => a === '1' && bString[i] === '1' ? '1' : '0').join(''), 2);
+  const [a_3_2, a_1_0] = [Math.floor(a / bit16) % bit16, a % bit16];
+  const [b_3_2, b_1_0] = [Math.floor(b / bit16) % bit16, b % bit16];
+  return (a_3_2 & b_3_2) * bit16 + (a_1_0 & b_1_0)
 };
 const not32 = (a: number) => {
-  return parseInt(pad32(a).split('').map((a) => a === '1' ? '0' : '1').join(''), 2);
+  const [a_3_2, a_1_0] = [Math.floor(a / bit16) % bit16, a % bit16];
+  return (~a_3_2) * bit16 + (~a_1_0)
 };
 
 const xor512 = (a: number[], b: number[]) => {
@@ -396,10 +401,10 @@ export class JWT {
         return false;
       };
       if (!checkUnit('ms', (amount) => expirationDate.setMilliseconds(expirationDate.getMilliseconds() + amount))
-          && !checkUnit('s', (amount) => expirationDate.setSeconds(expirationDate.getSeconds() + amount))
-          && !checkUnit('m', (amount) => expirationDate.setMinutes(expirationDate.getMinutes() + amount))
-          && !checkUnit('h', (amount) => expirationDate.setHours(expirationDate.getHours() + amount))
-          && !checkUnit('d', (amount) => expirationDate.setDate(expirationDate.getDate() + amount))) {
+        && !checkUnit('s', (amount) => expirationDate.setSeconds(expirationDate.getSeconds() + amount))
+        && !checkUnit('m', (amount) => expirationDate.setMinutes(expirationDate.getMinutes() + amount))
+        && !checkUnit('h', (amount) => expirationDate.setHours(expirationDate.getHours() + amount))
+        && !checkUnit('d', (amount) => expirationDate.setDate(expirationDate.getDate() + amount))) {
         throw new Error(`expiration time not parseable: ${expiration}`);
       }
     } else {
