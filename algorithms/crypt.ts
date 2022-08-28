@@ -2,8 +2,6 @@
 // https://de.wikipedia.org/wiki/HMAC
 // https://blog.boot.dev/cryptography/how-sha-2-works-step-by-step-sha-256/
 
-const DEV = false;
-
 const utf8ToBytes = (inputString: string) => Array.from(new TextEncoder().encode(inputString));
 const bytesToUtf8 = (inputBytes: number[]) => new TextDecoder().decode(new Uint8Array(inputBytes));
 
@@ -16,6 +14,7 @@ const pad64 = (str: number | string) => typeof str === 'number' ? pad64(str.toSt
 const byteHex = (str: number | string) => typeof str === 'number' ? byteHex(str.toString(16)) : (str.length < 2) ? `0${str}` : str;
 
 const bit16 = 256 * 256;
+const bitMask16 = (256 * 256) - 1;
 const shiftNums = [1];
 for (let i = 1; i <= 32; i++) {
   shiftNums.push(shiftNums[shiftNums.length - 1] * 2);
@@ -33,18 +32,17 @@ const rightRotate32 = (input: number, amount: number) => {
 const xor32 = (a: number, b: number) => {
   const [a_3_2, a_1_0] = [Math.floor(a / bit16) % bit16, a % bit16];
   const [b_3_2, b_1_0] = [Math.floor(b / bit16) % bit16, b % bit16];
-  return (a_3_2 ^ b_3_2) * bit16 + (a_1_0 ^ b_1_0)
+  return (a_3_2 ^ b_3_2) * bit16 + (a_1_0 ^ b_1_0);
 };
 const and32 = (a: number, b: number) => {
   const [a_3_2, a_1_0] = [Math.floor(a / bit16) % bit16, a % bit16];
   const [b_3_2, b_1_0] = [Math.floor(b / bit16) % bit16, b % bit16];
-  return (a_3_2 & b_3_2) * bit16 + (a_1_0 & b_1_0)
+  return (a_3_2 & b_3_2) * bit16 + (a_1_0 & b_1_0);
 };
 const not32 = (a: number) => {
   const [a_3_2, a_1_0] = [Math.floor(a / bit16) % bit16, a % bit16];
-  return (~a_3_2) * bit16 + (~a_1_0)
+  return (~a_3_2& bitMask16) * bit16 + (~a_1_0& bitMask16);
 };
-
 const xor512 = (a: number[], b: number[]) => {
   const resultBytes: number[] = [];
   for (let i = 0; i < 64; i++) {
@@ -151,7 +149,6 @@ class WordVector {
 }
 
 
-
 export class Base64 {
 
 
@@ -237,8 +234,6 @@ export class Base64 {
 Base64.alphabetBase.forEach((char, idx) => Base64.alphabetMap[char] = idx);
 Base64.alphabetMap['-'] = Base64.alphabetMap['+'];
 Base64.alphabetMap[`_`] = Base64.alphabetMap['/'];
-
-
 
 
 export class Sha256 {
@@ -344,7 +339,7 @@ export class Hmac {
   }
 
   public generateBytes(inputString: string, secret: string) {
-    if (!secret){
+    if (!secret) {
       throw new Error('no secret for Hmac');
     }
     const inputBytes = utf8ToBytes(inputString);
@@ -363,6 +358,7 @@ export class Hmac {
     const koPad = xor512(secretVector.data, Hmac.oPad);
     return this.hashFunction([...koPad, ...this.hashFunction([...kIPad, ...inputBytes])]);
   }
+
   public generate(inputString: string, secret: string) {
     return this.generateBytes(inputString, secret).map(num => byteHex(num)).join('');
   }
@@ -383,30 +379,34 @@ export class HmacSha256 extends Hmac {
 }
 
 
-
-
 export class JWT {
+
+  public static getExpirationDateFromString(expiration: string) {
+    const expirationDate = new Date();
+    const checkUnit = (unit: string, callback: (amount: number) => void) => {
+      if (expiration.endsWith(unit)) {
+        callback(parseInt(expiration.substring(0, expiration.length - unit.length), 10));
+        return true;
+      }
+      return false;
+    };
+    if (!checkUnit('ms', (amount) => expirationDate.setMilliseconds(expirationDate.getMilliseconds() + amount))
+        && !checkUnit('s', (amount) => expirationDate.setSeconds(expirationDate.getSeconds() + amount))
+        && !checkUnit('m', (amount) => expirationDate.setMinutes(expirationDate.getMinutes() + amount))
+        && !checkUnit('h', (amount) => expirationDate.setHours(expirationDate.getHours() + amount))
+        && !checkUnit('d', (amount) => expirationDate.setDate(expirationDate.getDate() + amount))) {
+      throw new Error(`expiration time not parseable: ${expiration}`);
+    }
+    return expirationDate;
+  }
+
   public createToken(payload: any, secret: string, expiration?: Date | string) {
     const base64 = new Base64();
     const hmacSha256 = new HmacSha256();
 
     let expirationDate: Date;
     if (typeof expiration === 'string') {
-      expirationDate = new Date();
-      const checkUnit = (unit: string, callback: (amount: number) => void) => {
-        if (expiration.endsWith(unit)) {
-          callback(parseInt(expiration.substring(0, expiration.length - unit.length), 10));
-          return true;
-        }
-        return false;
-      };
-      if (!checkUnit('ms', (amount) => expirationDate.setMilliseconds(expirationDate.getMilliseconds() + amount))
-        && !checkUnit('s', (amount) => expirationDate.setSeconds(expirationDate.getSeconds() + amount))
-        && !checkUnit('m', (amount) => expirationDate.setMinutes(expirationDate.getMinutes() + amount))
-        && !checkUnit('h', (amount) => expirationDate.setHours(expirationDate.getHours() + amount))
-        && !checkUnit('d', (amount) => expirationDate.setDate(expirationDate.getDate() + amount))) {
-        throw new Error(`expiration time not parseable: ${expiration}`);
-      }
+      expirationDate = JWT.getExpirationDateFromString(expiration);
     } else {
       expirationDate = expiration;
     }
@@ -427,7 +427,10 @@ export class JWT {
     return `${encodedHeader}.${encodedPayload}.${secretSign}`;
   }
 
-  public decodeToken(token: string, secret?: string): { header: any, payload: any, error: {expired: boolean, invalid: boolean} } {
+  public decodeToken(token: string, secret?: string): { header: any, payload: any, error: { expired: boolean, invalid: boolean } } {
+    if (token.split('').some(char => char !== '.' && typeof Base64.alphabetMap[char] !== 'number')) {
+      throw new Error('invalid Token');
+    }
     const base64 = new Base64();
     const hmacSha256 = new HmacSha256();
 
@@ -438,7 +441,7 @@ export class JWT {
     const header = JSON.parse(base64.decode(parts[0]));
     const payload = JSON.parse(base64.decode(parts[1]));
     const now = new Date().getTime() / 1000;
-    const expired = !payload.iat || !payload.exp || payload.iat > now || payload.exp  < now;
+    const expired = !payload.iat || !payload.exp || payload.iat > now || payload.exp < now;
 
     const encodedString = `${parts[0]}.${parts[1]}`;
     const hash = secret ? hmacSha256.generateBytes(encodedString, secret) : null;
@@ -446,46 +449,9 @@ export class JWT {
     const invalid = secretSign && secretSign !== parts[2];
 
     return {
-      header, payload, error:( expired || invalid ) ? {expired, invalid} : null,
+      header, payload, error: (expired || invalid) ? {expired, invalid} : null,
     };
   }
 }
 
 
-
-if (DEV) {
-  console.info('=== BASE64 =========================================================');
-  const base64 = new Base64();
-  const check = (string: string, targetResult: string) => {
-    const result = base64.encode(string);
-    const backResult = base64.decode(result);
-    console.info(string, result === targetResult, `[${targetResult}]`, backResult === string);
-  };
-  check('hello world', 'aGVsbG8gd29ybGQ=');
-  check('Polyfon zwitschernd aßen Mäxchens Vögel Rüben, Joghurt und Quark', 'UG9seWZvbiB6d2l0c2NoZXJuZCBhw59lbiBNw6R4Y2hlbnMgVsO2Z2VsIFLDvGJlbiwgSm9naHVydCB1bmQgUXVhcms=');
-  check('Franz jagt im Komplett verwahrlosten Taxi quer durh Bayern', 'RnJhbnogamFndCBpbSBLb21wbGV0dCB2ZXJ3YWhybG9zdGVuIFRheGkgcXVlciBkdXJoIEJheWVybg==');
-  check('Franz jagt im Komplett verwahrlosten Taxi quer durh Bayern!!', 'RnJhbnogamFndCBpbSBLb21wbGV0dCB2ZXJ3YWhybG9zdGVuIFRheGkgcXVlciBkdXJoIEJheWVybiEh');
-}
-
-if (DEV) {
-  console.info('=== SHA256 =========================================================');
-  const sha256 = new Sha256();
-  const check = (hash: string, string: string) => {
-    const result = sha256.generate(string, {seperatedBlocks: true});
-    console.info(result, result === hash, `(${string})`);
-  };
-  check('b94d27b9 934d3e08 a52e52d7 da7dabfa c484efe3 7a5380ee 9088f7ac e2efcde9', 'hello world');
-  check('ba7816bf 8f01cfea 414140de 5dae2223 b00361a3 96177a9c b410ff61 f20015ad', 'abc');
-  check('248d6a61 d20638b8 e5c02693 0c3e6039 a33ce459 64ff2167 f6ecedd4 19db06c1', 'abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq');
-}
-
-
-if (DEV) {
-  console.info('=== HMAC =========================================================');
-  const hmacSha256 = new HmacSha256();
-  const check = (hash: string, string: string, secret: string) => {
-    const result = hmacSha256.generate(string, secret);
-    console.info(result, result === hash, `(${string})`);
-  };
-  check('b69fef3e3fe467e1fcc7353673fd120dccbf41c82dc61c564a212363cee0f122', 'hello world', 'geheim');
-}

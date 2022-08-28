@@ -1,0 +1,23 @@
+{
+  "name": "misc.node-stuff",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dogi-zz/misc.node-stuff.git"
+  },
+  "dependencies": {
+    "typescript": "3.9.7",
+    "ts-node": "8.10.2"
+  },
+  "devDependencies": {
+    "@types/jest": "26.0.20",
+    "@types/node": "13.13.40",
+    "eslint": "6.8.0",
+    "jest": "26.6.1",
+    "ts-jest": "26.5.0"
+  }
+}
