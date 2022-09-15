@@ -411,7 +411,7 @@ export class JWT {
       expirationDate = expiration;
     }
     const iat = payload.iat || Math.floor(new Date().getTime() / 1000);
-    const exp = payload.exp || Math.ceil(expirationDate.getTime() / 1000);
+    const exp = expiration ? Math.ceil(expirationDate.getTime() / 1000) : payload.exp;
     if (!exp) {
       throw new Error(`expiration time missing`);
     }
